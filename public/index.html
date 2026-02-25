@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Replan App</title>
+  <style>
+    body{font-family:Arial;margin:16px;background:#fafafa}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:14px;margin-bottom:12px}
+    h2,h3{margin:0 0 10px 0}
+    button{width:100%;padding:12px;border:0;border-radius:12px;background:#111827;color:#fff;font-weight:700;cursor:pointer}
+    button.secondary{background:#374151}
+    button.danger{background:#b91c1c}
+    button.small{padding:8px;border-radius:10px;font-size:12px;width:auto}
+    input{width:100%;padding:10px;border:1px solid #d1d5db;border-radius:12px}
+    table{width:100%;border-collapse:collapse}
+    th,td{border-bottom:1px solid #eee;padding:8px;font-size:13px;text-align:right;vertical-align:middle}
+    th{background:#f9fafb}
+    .muted{color:#6b7280;font-size:12px}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .half{flex:1;min-width:240px}
+    .kpi{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px}
+    .kpi > div{padding:10px;border-radius:12px;background:#f6f7f9}
+    .badge{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700}
+    .pending{background:#fef3c7;color:#92400e}
+    .done{background:#d1fae5;color:#065f46}
+    .hidden{display:none}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap}
+    .tab{flex:1;min-width:120px;background:#f3f4f6;color:#111827;padding:10px;border-radius:12px;text-align:center;font-weight:700;cursor:pointer}
+    .tab.active{background:#111827;color:#fff}
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h2>نظام الريبلانش</h2>
+    <div class="muted">
+      - New Collection: بعد Clear + Update يطلع 1 قطعة لكل SKU/Size/Color (Pending). وبعد التحديث العادي يطلع الجديد فقط (Pending).<br/>
+      - Execute في New Collection يخصم 1 من المخزون ويحدّث الرصيد.<br/>
+      - المخزون الحالي يظهر Qty>0 فقط + Search.<br/>
+      - Replan: Sales>0 + Balance>0 و PullQty حسب Min/Max لكل SKU (Default 1/1).<br/>
+      - Dashboard: أكثر أصناف/كاتيجوري عملت Replan + أصناف مفيش عليها Replan من فترة.
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="tabs">
+      <div class="tab active" onclick="showTab('replan')">الريبلانش</div>
+      <div class="tab" onclick="showTab('new')">New Collection</div>
+      <div class="tab" onclick="showTab('curstock')">المخزون الحالي</div>
+      <div class="tab" onclick="showTab('limits')">Min/Max</div>
+      <div class="tab" onclick="showTab('stockadmin')">تحديث المخزون (Admin)</div>
+      <div class="tab" onclick="showTab('dash')">Dashboard</div>
+    </div>
+  </div>
+
+  <!-- REPLAN -->
+  <div class="card" id="tab-replan">
+    <h3>رفع تقرير المبيعات</h3>
+    <div class="row">
+      <div class="half">
+        <div class="muted">Sales Report (A text + B Qty)</div>
+        <input type="file" id="salesFile" accept=".xlsx,.xls,.csv" />
+      </div>
+      <div class="half">
+        <div class="muted">Category (اختياري)</div>
+        <input type="text" id="categoryFilter" placeholder="All / Saleable / ..." />
+      </div>
+    </div>
+
+    <div style="height:10px"></div>
+    <button onclick="generateReplan()">Generate Replan</button>
+    <div id="replanStatus" class="muted" style="margin-top:10px"></div>
+
+    <div id="replanResult" class="hidden" style="margin-top:14px">
+      <div class="kpi">
+        <div><div class="muted">Run ID</div><div id="kRun" style="font-weight:700"></div></div>
+        <div><div class="muted">Lines</div><div id="kLines" style="font-weight:700"></div></div>
+        <div><div class="muted">Category</div><div id="kCat" style="font-weight:700"></div></div>
+        <div><div class="muted">Rule</div><div style="font-weight:700">Min/Max</div></div>
+      </div>
+
+      <div style="height:10px"></div>
+      <div class="row">
+        <div class="half"><button class="danger" onclick="executeAllReplan()">Execute All Pending</button></div>
+        <div class="half"><button class="secondary" onclick="downloadReplanPDF()">Export PDF (عربي)</button></div>
+      </div>
+
+      <div style="height:12px"></div>
+      <table>
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th>SKU</th>
+            <th>Size</th>
+            <th>Color</th>
+            <th>Stock</th>
+            <th>Sales</th>
+            <th>Balance</th>
+            <th>PullQty</th>
+            <th>Status</th>
+            <th>Execute</th>
+          </tr>
+        </thead>
+        <tbody id="replanBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- NEW COLLECTION -->
+  <div class="card hidden" id="tab-new">
+    <h3>New Collection</h3>
+    <div class="row">
+      <div class="half"><button class="danger" onclick="executeAllNew()">Execute All</button></div>
+      <div class="half"><button class="secondary" onclick="downloadNewPDF()">Export PDF</button></div>
+    </div>
+    <div id="newStatus" class="muted" style="margin-top:10px"></div>
+
+    <div style="height:12px"></div>
+    <table>
+      <thead>
+        <tr>
+          <th>Category</th><th>SKU</th><th>Size</th><th>Color</th><th>Qty</th><th>Status</th><th>Execute</th>
+        </tr>
+      </thead>
+      <tbody id="newBody"></tbody>
+    </table>
+  </div>
+
+  <!-- CURRENT STOCK -->
+  <div class="card hidden" id="tab-curstock">
+    <h3>المخزون الحالي (Qty>0 فقط)</h3>
+    <div class="row">
+      <div class="half">
+        <div class="muted">Search (SKU/Size/Color/Category)</div>
+        <input type="text" id="stockSearchQ" placeholder="اكتب كود أو لون أو مقاس..." />
+      </div>
+      <div class="half">
+        <div class="muted">Category (اختياري)</div>
+        <input type="text" id="stockSearchCat" placeholder="All / Saleable / ..." />
+      </div>
+      <div class="half">
+        <button onclick="searchStock()">Search</button>
+      </div>
+    </div>
+    <div id="stockSearchStatus" class="muted" style="margin-top:10px"></div>
+
+    <div style="height:12px"></div>
+    <table>
+      <thead>
+        <tr><th>Category</th><th>SKU</th><th>Size</th><th>Color</th><th>Qty</th></tr>
+      </thead>
+      <tbody id="stockSearchBody"></tbody>
+    </table>
+  </div>
+
+  <!-- LIMITS -->
+  <div class="card hidden" id="tab-limits">
+    <h3>Min/Max لكل SKU</h3>
+    <div class="muted">الافتراضي: Min=1 Max=1</div>
+
+    <div style="height:10px"></div>
+    <div class="row">
+      <div class="half"><div class="muted">Default Min</div><input type="number" id="defMin" value="1" min="0" /></div>
+      <div class="half"><div class="muted">Default Max</div><input type="number" id="defMax" value="1" min="0" /></div>
+      <div class="half"><button class="secondary" onclick="saveDefaultLimits()">Save Default</button></div>
+    </div>
+
+    <div style="height:10px"></div>
+    <div class="row">
+      <div class="half"><div class="muted">SKU</div><input type="text" id="limSku" placeholder="5261766146" /></div>
+      <div class="half"><div class="muted">Min</div><input type="number" id="limMin" value="1" min="0" /></div>
+      <div class="half"><div class="muted">Max</div><input type="number" id="limMax" value="1" min="0" /></div>
+      <div class="half"><button onclick="saveSkuLimits()">Save SKU</button></div>
+    </div>
+
+    <div id="limitsStatus" class="muted" style="margin-top:10px"></div>
+
+    <div style="height:12px"></div>
+    <button class="secondary" onclick="loadLimits()">Reload Limits</button>
+
+    <div style="height:10px"></div>
+    <table>
+      <thead><tr><th>SKU</th><th>Min</th><th>Max</th></tr></thead>
+      <tbody id="limitsBody"></tbody>
+    </table>
+  </div>
+
+  <!-- STOCK ADMIN -->
+  <div class="card hidden" id="tab-stockadmin">
+    <h3>تحديث المخزون (Admin)</h3>
+    <div class="muted">الباسورد الافتراضي: 1234 (تقدر تغيره من ENV)</div>
+
+    <div style="height:10px"></div>
+    <div class="row">
+      <div class="half"><div class="muted">Admin Password</div><input type="password" id="adminPassword" placeholder="اكتب الباسورد" /></div>
+      <div class="half"><div class="muted">Stock File (A text + B Qty)</div><input type="file" id="stockFile" accept=".xlsx,.xls,.csv" /></div>
+    </div>
+
+    <div style="height:10px"></div>
+    <div class="row">
+      <div class="half"><button class="danger" onclick="updateStock()">Update Stock</button></div>
+      <div class="half"><button class="danger" onclick="clearStock()">Clear Stock</button></div>
+    </div>
+
+    <div id="stockStatus" class="muted" style="margin-top:10px"></div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div class="card hidden" id="tab-dash">
+    <h3>Dashboard</h3>
+    <div class="row">
+      <div class="half"><div class="muted">Window Days</div><input type="number" id="dashDays" value="30" min="1" /></div>
+      <div class="half"><div class="muted">No Replan Since (Days)</div><input type="number" id="dashStale" value="14" min="1" /></div>
+      <div class="half"><div class="muted">Category (اختياري)</div><input type="text" id="dashCategory" placeholder="All / Saleable / ..." /></div>
+    </div>
+    <div style="height:10px"></div>
+    <button onclick="loadDashboard()">Load Dashboard</button>
+    <div id="dashStatus" class="muted" style="margin-top:10px"></div>
+
+    <div style="height:12px"></div>
+
+    <div class="card">
+      <h3>Top Replenished Categories</h3>
+      <table>
+        <thead><tr><th>Category</th><th>Qty</th></tr></thead>
+        <tbody id="topCats"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Top Replenished SKUs</h3>
+      <table>
+        <thead><tr><th>Category</th><th>SKU</th><th>Qty</th></tr></thead>
+        <tbody id="topSkus"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>No Replan Since</h3>
+      <table>
+        <thead><tr><th>Category</th><th>SKU</th><th>Size</th><th>Color</th><th>StockQty</th><th>Last Execute</th></tr></thead>
+        <tbody id="noReplan"></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+  let currentRunId = null;
+  let currentReplanLines = [];
+  let currentNewCollection = [];
+
+  function showTab(name) {
+    const tabs = ["replan","new","curstock","limits","stockadmin","dash"];
+    tabs.forEach(t => {
+      document.getElementById("tab-" + t).classList.add("hidden");
+      document.querySelectorAll(".tab").forEach(el => el.classList.remove("active"));
+    });
+    document.getElementById("tab-" + name).classList.remove("hidden");
+    const idx = { replan:0, new:1, curstock:2, limits:3, stockadmin:4, dash:5 }[name];
+    document.querySelectorAll(".tab")[idx].classList.add("active");
+
+    if (name === "new") loadNewCollectionLatest();
+    if (name === "limits") loadLimits();
+  }
+
+  function setText(id, txt) { document.getElementById(id).textContent = txt; }
+
+  /* ---------- STOCK ADMIN ---------- */
+  async function updateStock() {
+    const pw = document.getElementById("adminPassword").value.trim();
+    const f = document.getElementById("stockFile").files[0];
+    const status = document.getElementById("stockStatus");
+
+    if (!pw) { status.textContent = "اكتب الباسورد"; return; }
+    if (!f) { status.textContent = "اختار ملف الاستوك"; return; }
+
+    status.textContent = "Updating...";
+    const fd = new FormData();
+    fd.append("stock", f);
+
+    const res = await fetch("/api/stock/update", {
+      method:"POST",
+      headers:{ "X-Admin-Password": pw },
+      body: fd
+    });
+    const data = await res.json();
+    if (!res.ok) { status.textContent = "Error: " + (data.error||"unknown"); return; }
+
+    status.textContent =
+      (data.baseMode ? "Base Stock Uploaded ✅" : "Stock Updated ✅") +
+      ` | New Collection: ${data.newCollectionCount}`;
+    showTab("new");
+  }
+
+  async function clearStock() {
+    const pw = document.getElementById("adminPassword").value.trim();
+    const status = document.getElementById("stockStatus");
+    if (!pw) { status.textContent = "اكتب الباسورد"; return; }
+
+    const ok = confirm("تأكيد مسح المخزون بالكامل؟");
+    if (!ok) return;
+
+    const res = await fetch("/api/stock/clear", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "X-Admin-Password": pw },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    status.textContent = res.ok ? "تم المسح ✅" : ("Error: " + (data.error||"unknown"));
+  }
+
+  /* ---------- NEW COLLECTION ---------- */
+  async function loadNewCollectionLatest() {
+    const res = await fetch("/api/newcollection/latest");
+    const data = await res.json();
+    currentNewCollection = data.items || [];
+    renderNewCollection();
+    setText("newStatus", `Mode: ${data.mode || "-"} | Lines: ${currentNewCollection.length}`);
+  }
+
+  function renderNewCollection() {
+    const body = document.getElementById("newBody");
+    body.innerHTML = "";
+    for (const it of currentNewCollection) {
+      const badge = it.status === "Done"
+        ? `<span class="badge done">Done</span>`
+        : `<span class="badge pending">Pending</span>`;
+      const btn = it.status === "Done"
+        ? `<button class="small secondary" disabled>Executed</button>`
+        : `<button class="small" onclick="executeNewLine('${it.lineId}')">Execute</button>`;
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        `<td>${it.category||""}</td><td>${it.sku||""}</td><td>${it.size||""}</td><td>${it.color||""}</td>` +
+        `<td>${it.qty||1}</td><td>${badge}</td><td>${btn}</td>`;
+      body.appendChild(tr);
+    }
+  }
+
+  async function executeNewLine(lineId) {
+    const ok = confirm("تأكيد خروج هذا السطر؟ سيتم خصم 1 من المخزون.");
+    if (!ok) return;
+
+    const res = await fetch("/api/newcollection/execute", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ lineId })
+    });
+    const data = await res.json();
+    if (!res.ok) { alert("Error: " + (data.error||"unknown")); return; }
+    loadNewCollectionLatest();
+  }
+
+  async function executeAllNew() {
+    const ok = confirm("تأكيد خروج النيو كولكشن كله؟");
+    if (!ok) return;
+
+    const res = await fetch("/api/newcollection/executeAll", { method:"POST" });
+    const data = await res.json();
+    if (!res.ok) { alert("Error: " + (data.error||"unknown")); return; }
+    currentNewCollection = data.items || currentNewCollection;
+    renderNewCollection();
+    if ((data.failed||0) > 0) alert(`Failed: ${data.failed}`);
+  }
+
+  async function downloadNewPDF() {
+    if (!currentNewCollection.length) return;
+    const items = currentNewCollection.map(x => ({ category:x.category, sku:x.sku, size:x.size, color:x.color, qty:x.qty }));
+    const res = await fetch("/api/pdf", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ title:"New_Collection", items })
+    });
+    if (!res.ok) { alert("PDF error"); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "New_Collection.pdf";
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  /* ---------- STOCK SEARCH ---------- */
+  async function searchStock() {
+    const q = document.getElementById("stockSearchQ").value.trim();
+    const category = document.getElementById("stockSearchCat").value.trim();
+    const status = document.getElementById("stockSearchStatus");
+
+    status.textContent = "Loading...";
+    const qs = new URLSearchParams({ q, category, limit: 300 });
+    const res = await fetch("/api/stock/search?" + qs.toString());
+    const data = await res.json();
+
+    if (!res.ok) { status.textContent = "Error: " + (data.error||"unknown"); return; }
+    status.textContent = `UpdatedAt: ${data.updatedAt||"-"} | Results: ${data.count}`;
+
+    const body = document.getElementById("stockSearchBody");
+    body.innerHTML = "";
+    (data.items||[]).forEach(x => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${x.category||""}</td><td>${x.sku||""}</td><td>${x.size||""}</td><td>${x.color||""}</td><td>${x.qty||0}</td>`;
+      body.appendChild(tr);
+    });
+  }
+
+  /* ---------- LIMITS ---------- */
+  async function loadLimits() {
+    const res = await fetch("/api/limits/get");
+    const data = await res.json();
+    if (!res.ok) { setText("limitsStatus","Error"); return; }
+
+    document.getElementById("defMin").value = data.defaultMin ?? 1;
+    document.getElementById("defMax").value = data.defaultMax ?? 1;
+
+    const body = document.getElementById("limitsBody");
+    body.innerHTML = "";
+    const skus = data.skus || {};
+    Object.keys(skus).sort().slice(0,500).forEach(sku => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${sku}</td><td>${skus[sku].min}</td><td>${skus[sku].max}</td>`;
+      body.appendChild(tr);
+    });
+
+    setText("limitsStatus", `Loaded ✅ | SKUs: ${Object.keys(skus).length}`);
+  }
+
+  async function saveDefaultLimits() {
+    const defaultMin = Number(document.getElementById("defMin").value);
+    const defaultMax = Number(document.getElementById("defMax").value);
+    const res = await fetch("/api/limits/setDefault", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ defaultMin, defaultMax })
+    });
+    const data = await res.json();
+    setText("limitsStatus", res.ok ? "Saved ✅" : ("Error: " + (data.error||"unknown")));
+    loadLimits();
+  }
+
+  async function saveSkuLimits() {
+    const sku = document.getElementById("limSku").value.trim();
+    const min = Number(document.getElementById("limMin").value);
+    const max = Number(document.getElementById("limMax").value);
+    const res = await fetch("/api/limits/set", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ sku, min, max })
+    });
+    const data = await res.json();
+    setText("limitsStatus", res.ok ? `Saved ✅ SKU ${sku}` : ("Error: " + (data.error||"unknown")));
+    loadLimits();
+  }
+
+  /* ---------- REPLAN ---------- */
+  async function generateReplan() {
+    const input = document.getElementById("salesFile");
+    const f = input.files[0];
+    const category = document.getElementById("categoryFilter").value.trim();
+    const status = document.getElementById("replanStatus");
+    if (!f) { status.textContent = "ارفع ملف المبيعات أولاً"; return; }
+
+    status.textContent = "Processing...";
+    const fd = new FormData();
+    fd.append("sales", f);
+    fd.append("category", category);
+
+    const res = await fetch("/api/replan/generate", { method:"POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) { status.textContent = "Error: " + (data.error || "unknown"); return; }
+
+    currentRunId = data.runId;
+    currentReplanLines = data.lines || [];
+
+    document.getElementById("replanResult").classList.remove("hidden");
+    setText("kRun", data.runId);
+    setText("kLines", data.linesCount);
+    setText("kCat", data.categoryFilter);
+
+    renderReplanTable();
+    input.value = "";
+    status.textContent = "Done ✅";
+  }
+
+  function renderReplanTable() {
+    const body = document.getElementById("replanBody");
+    body.innerHTML = "";
+    for (const l of currentReplanLines) {
+      const badge = l.status === "Done"
+        ? `<span class="badge done">Done</span>`
+        : `<span class="badge pending">Pending</span>`;
+      const btn = l.status === "Done"
+        ? `<button class="small secondary" disabled>Executed</button>`
+        : `<button class="small" onclick="executeReplanLine('${l.lineId}')">Execute</button>`;
+
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        `<td>${l.category||""}</td><td>${l.sku||""}</td><td>${l.size||""}</td><td>${l.color||""}</td>` +
+        `<td>${l.stockQty||0}</td><td>${l.salesQty||0}</td><td><b>${l.balance||0}</b></td><td><b>${l.pullQty||0}</b></td>` +
+        `<td>${badge}</td><td>${btn}</td>`;
+      body.appendChild(tr);
+    }
+  }
+
+  async function executeReplanLine(lineId) {
+    const ok = confirm("تأكيد تنفيذ السطر؟ سيتم خصم PullQty من المخزون.");
+    if (!ok) return;
+
+    const res = await fetch("/api/replan/execute", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ runId: currentRunId, lineId })
+    });
+    const data = await res.json();
+    if (!res.ok) { alert("Error: " + (data.error||"unknown")); return; }
+    const line = currentReplanLines.find(x => x.lineId === lineId);
+    if (line) line.status = "Done";
+    renderReplanTable();
+  }
+
+  async function executeAllReplan() {
+    const ok = confirm("تأكيد تنفيذ كل الريبلانش؟");
+    if (!ok) return;
+
+    const res = await fetch("/api/replan/executeAll", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ runId: currentRunId })
+    });
+    const data = await res.json();
+    if (!res.ok) { alert("Error: " + (data.error||"unknown")); return; }
+    currentReplanLines = data.lines || currentReplanLines;
+    renderReplanTable();
+    if ((data.failed||0) > 0) alert(`Failed: ${data.failed}`);
+  }
+
+  async function downloadReplanPDF() {
+    if (!currentReplanLines.length) return;
+    const items = currentReplanLines.map(l => ({ category:l.category, sku:l.sku, size:l.size, color:l.color, qty:l.pullQty }));
+    const res = await fetch("/api/pdf", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ title:"Replan_Report", items })
+    });
+    if (!res.ok) { alert("PDF error"); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "Replan_Report.pdf";
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  /* ---------- DASHBOARD ---------- */
+  async function loadDashboard() {
+    const days = document.getElementById("dashDays").value;
+    const staleDays = document.getElementById("dashStale").value;
+    const category = document.getElementById("dashCategory").value.trim();
+    const status = document.getElementById("dashStatus");
+
+    status.textContent = "Loading...";
+    const qs = new URLSearchParams({ days, staleDays, category });
+    const res = await fetch("/api/dashboard?" + qs.toString());
+    const data = await res.json();
+
+    if (!res.ok) { status.textContent = "Error: " + (data.error || "unknown"); return; }
+    status.textContent = `Done ✅ | Window: ${data.windowDays} | Stale: ${data.staleDays}`;
+
+    const topCats = document.getElementById("topCats");
+    topCats.innerHTML = "";
+    (data.topCategories||[]).forEach(x => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${x.category}</td><td>${x.qty}</td>`;
+      topCats.appendChild(tr);
+    });
+
+    const topSkus = document.getElementById("topSkus");
+    topSkus.innerHTML = "";
+    (data.topSkus||[]).forEach(x => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${x.category}</td><td>${x.sku}</td><td>${x.qty}</td>`;
+      topSkus.appendChild(tr);
+    });
+
+    const noReplan = document.getElementById("noReplan");
+    noReplan.innerHTML = "";
+    (data.noReplan||[]).forEach(x => {
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        `<td>${x.category}</td><td>${x.sku}</td><td>${x.size}</td><td>${x.color}</td>` +
+        `<td>${x.stockQty}</td><td>${x.lastExecutedAt ? x.lastExecutedAt.replace("T"," ").slice(0,19) : "-"}</td>`;
+      noReplan.appendChild(tr);
+    });
+  }
+</script>
+</body>
+</html>

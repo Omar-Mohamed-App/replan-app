@@ -1,0 +1,25 @@
+{
+  "runs": [
+    {
+      "runId": "RUN-1771968867667",
+      "createdAt": "2026-02-24T21:34:27.667Z",
+      "categoryFilter": "All",
+      "salesFileName": "sales.xlsx",
+      "lines": [
+        {
+          "lineId": "525797448||4||كافية",
+          "category": "All / Saleable / Boys / Homewear / Pajama",
+          "sku": "525797448",
+          "size": "4",
+          "color": "كافية",
+          "stockQty": 4,
+          "salesQty": 2,
+          "balance": 2,
+          "pullQty": 1,
+          "status": "Done",
+          "executedAt": "2026-02-24T21:34:31.915Z"
+        }
+      ]
+    }
+  ]
+}
